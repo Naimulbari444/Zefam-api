@@ -1,1 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TikTok Bot Pro</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background: #000; color: #fff; font-family: 'Segoe UI', sans-serif; padding: 15px; }
+        .main-card { max-width: 450px; margin: auto; background: #111; padding: 25px; border-radius: 15px; border: 1.5px solid #0f0; }
+        h3 { color: #0f0; text-align: center; font-weight: bold; margin-bottom: 20px; text-transform: uppercase; }
+        label { color: #0f0; font-weight: bold; font-size: 14px; margin-bottom: 5px; display: block; }
+        .form-select, .form-control { background: #fff !important; color: #000 !important; font-weight: bold; border: 2px solid #0f0; margin-bottom: 15px; }
+        .btn-run { background: #0f0; color: #000; font-weight: bold; width: 100%; padding: 12px; border: none; border-radius: 8px; font-size: 16px; margin-bottom: 10px; }
+        .btn-stop { background: #ff0000; color: #fff; font-weight: bold; width: 100%; padding: 10px; border: none; border-radius: 8px; display: none; }
+        .log-box { background: #000; color: #0f0; height: 220px; overflow-y: auto; border: 1px solid #333; padding: 10px; font-family: monospace; font-size: 13px; border-radius: 8px; margin-top: 20px; }
+        .status { font-size: 13px; text-align: center; margin-bottom: 10px; }
+    </style>
+</head>
+<body>
 
+<div class="main-card">
+    <h3>TIKTOK AUTOMATION</h3>
+    <div class="status">System Status: <span id="st-text" class="text-danger">Idle</span></div>
+
+    <form id="botForm">
+        <label>Select Service:</label>
+        <select id="sid" class="form-select">
+            {% for s in services %}
+            <option value="{{ s.id }}" {% if not s.is_ok %}disabled style="color:red"{% endif %}>{{ s.name }} — [{{ s.status }}]</option>
+            {% endfor %}
+        </select>
+
+        <label>Video URL:</label>
+        <input type="url" id="link" class="form-control" placeholder="Paste link here" required>
+
+        <label>Target Orders (Optional):</label>
+        <input type="number" id="trgt" class="form-control" placeholder="Empty for unlimited">
+
+        <button type="submit" id="btn" class="btn-run">START BOT</button>
+    </form>
+    
+    <button id="stopBtn" onclick="stopBot()" class="btn-stop">STOP PROCESS</button>
+
+    <div id="logs" class="log-box">> System Ready...</div>
+</div>
+
+<script>
+    let timer;
+    async function refresh() {
+        const r = await fetch('/get_logs');
+        const d = await r.json();
+        document.getElementById('logs').innerHTML = d.logs.map(x => `<div>> ${x}</div>`).join('');
+        const lb = document.getElementById('logs'); lb.scrollTop = lb.scrollHeight;
+
+        const st = document.getElementById('st-text');
+        const bt = document.getElementById('btn');
+        const stopBt = document.getElementById('stopBtn');
+
+        if(d.is_running) {
+            st.innerText = "Running..."; st.className = "text-success fw-bold";
+            bt.style.display = "none";
+            stopBt.style.display = "block";
+        } else {
+            st.innerText = "Idle / Stopped"; st.className = "text-danger";
+            bt.style.display = "block"; bt.innerText = "START BOT";
+            stopBt.style.display = "none";
+            if(timer && !d.is_running) clearInterval(timer);
+        }
+    }
+
+    document.getElementById('botForm').onsubmit = async (e) => {
+        e.preventDefault();
+        const f = new FormData();
+        f.append('service_id', document.getElementById('sid').value);
+        f.append('video_link', document.getElementById('link').value);
+        f.append('target', document.getElementById('trgt').value);
+        
+        await fetch('/start', { method: 'POST', body: f });
+        timer = setInterval(refresh, 2000);
+    };
+
+    async function stopBot() {
+        await fetch('/stop', { method: 'POST' });
+        setTimeout(refresh, 1000);
+    }
+    
+    setInterval(refresh, 5000);
+</script>
+</body>
+</html>
