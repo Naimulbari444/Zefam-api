@@ -109,6 +109,9 @@ def get_logs():
     running_count = sum(1 for task in active_tasks.values() if task['running'])
     return jsonify({"logs": logs[-30:], "running_count": running_count})
 
-if __name__ == '__main__':
-    threading.Thread(target=keep_alive_ping, daemon=True).start()
-    app.run(host='0.0.0.0', port=12315)
+# আপনার অন্যান্য কোড বা ফাংশন এখানে থাকবে...
+
+# ব্যাকগ্রাউন্ড পিং চালু করা
+threading.Thread(target=keep_alive_ping, daemon=True).start()
+
+# এখানে আর app.run() বা পোর্ট উল্লেখ করার দরকার নেই
