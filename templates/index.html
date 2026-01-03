@@ -3,71 +3,90 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TikTok Bot Pro</title>
+    <title>Multi-Service TikTok Bot</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        body { background: #0c0c0c; color: #fff; font-family: sans-serif; padding: 20px; }
-        .main-card { max-width: 450px; margin: auto; background: #1a1a1a; padding: 25px; border-radius: 15px; border: 1px solid #333; }
-        h3 { color: #00ff88; text-align: center; font-weight: bold; margin-bottom: 20px; text-transform: uppercase; }
-        label { color: #00ff88; font-weight: bold; font-size: 13px; margin-bottom: 5px; display: block; }
-        .form-control, .form-select { background: #252525 !important; border: 1px solid #444 !important; color: #ffffff !important; padding: 12px; margin-bottom: 15px; }
-        .form-control::placeholder { color: #aaaaaa !important; }
-        .btn-run { background: #00ff88; color: #000; font-weight: bold; width: 100%; padding: 12px; border: none; border-radius: 8px; }
-        .btn-stop { background: #ff4444; color: #fff; font-weight: bold; width: 100%; padding: 12px; border: none; border-radius: 8px; display: none; }
-        .log-box { background: #000; color: #00ff88; height: 200px; overflow-y: auto; border: 1px solid #333; padding: 10px; font-family: monospace; font-size: 12px; border-radius: 8px; margin-top: 20px; }
-        .status { text-align: center; font-size: 14px; margin-bottom: 10px; }
+        body { background: #080808; color: #fff; font-family: 'Inter', sans-serif; padding: 15px; }
+        .container-main { max-width: 450px; margin: auto; background: #121212; padding: 25px; border-radius: 20px; border: 1px solid #222; box-shadow: 0 15px 35px rgba(0,0,0,0.7); }
+        h3 { color: #00ff88; text-align: center; font-weight: 800; letter-spacing: 1px; margin-bottom: 25px; }
+        label { color: #888; font-size: 11px; font-weight: 700; text-transform: uppercase; margin-bottom: 8px; display: block; }
+        .form-control, .form-select { background: #1a1a1a !important; border: 1px solid #333 !important; color: #fff !important; padding: 12px; border-radius: 12px; margin-bottom: 20px; }
+        .form-control::placeholder { color: #555 !important; }
+        .btn-start { background: #00ff88; color: #000; font-weight: 700; width: 100%; padding: 14px; border-radius: 12px; border: none; transition: 0.3s; }
+        .btn-start:hover { background: #00cc6e; transform: translateY(-2px); }
+        .btn-stop { background: #ff3333; color: #fff; font-weight: 700; width: 100%; padding: 12px; border-radius: 12px; border: none; margin-top: 10px; }
+        .log-box { background: #000; color: #00ff88; height: 250px; overflow-y: auto; border: 1px solid #222; padding: 15px; font-family: 'Consolas', monospace; font-size: 11px; border-radius: 12px; margin-top: 20px; border-left: 3px solid #00ff88; }
+        .stat-bar { background: #1a1a1a; padding: 10px; border-radius: 10px; text-align: center; margin-bottom: 20px; border: 1px solid #222; font-size: 13px; }
     </style>
 </head>
 <body>
-<div class="main-card">
-    <h3>TIKTOK BOT PRO</h3>
-    <div class="status">System: <span id="st-text" class="text-danger">IDLE</span></div>
+
+<div class="container-main">
+    <h3>TIKTOK MULTI-BOT</h3>
+    <div class="stat-bar">Active Running Tasks: <span id="t-count" class="text-info fw-bold">0</span></div>
+
     <form id="botForm">
-        <label>SERVICE TYPE</label>
+        <label>Service Type</label>
         <select id="sid" class="form-select">
             {% for s in services %}
-            <option value="{{ s.id }}">{{ s.name }} — [{{ s.status }}]</option>
+            <option value="{{ s.id }}" {% if not s.is_ok %}class="text-danger"{% endif %}>
+                {{ s.name }} — [{{ s.status }}]
+            </option>
             {% endfor %}
         </select>
-        <label>VIDEO LINK</label>
-        <input type="url" id="link" class="form-control" placeholder="Paste TikTok link here..." required>
-        <label>TARGET AMOUNT</label>
-        <input type="number" id="trgt" class="form-control" placeholder="Example: 100">
-        <button type="submit" id="btn" class="btn-run">START PROCESS</button>
+
+        <label>TikTok Video Link</label>
+        <input type="url" id="link" class="form-control" placeholder="https://www.tiktok.com/@user/video/..." required>
+
+        <label>Target Amount</label>
+        <input type="number" id="trgt" class="form-control" placeholder="Enter amount (e.g. 500)">
+
+        <button type="submit" class="btn-start">ADD TO QUEUE</button>
     </form>
-    <button id="stopBtn" onclick="stopBot()" class="btn-stop">STOP BOT</button>
-    <div id="logs" class="log-box">> Waiting for command...</div>
+    
+    <button onclick="stopAll()" class="btn-stop">STOP ALL PROCESSES</button>
+
+    <div id="logs" class="log-box">> System ready. Select a service to start.</div>
 </div>
+
 <script>
-    async function update() {
-        const r = await fetch('/get_logs');
-        const d = await r.json();
-        document.getElementById('logs').innerHTML = d.logs.map(x => `<div>> ${x}</div>`).join('');
-        const lb = document.getElementById('logs'); lb.scrollTop = lb.scrollHeight;
-        if(d.is_running) {
-            document.getElementById('st-text').innerText = "RUNNING (Keep-Alive: 3m)";
-            document.getElementById('btn').style.display = "none";
-            document.getElementById('stopBtn').style.display = "block";
-        } else {
-            document.getElementById('st-text').innerText = "IDLE";
-            document.getElementById('btn').style.display = "block";
-            document.getElementById('stopBtn').style.display = "none";
-        }
+    async function refreshLogs() {
+        try {
+            const res = await fetch('/get_logs');
+            const data = await res.json();
+            const logDiv = document.getElementById('logs');
+            logDiv.innerHTML = data.logs.map(l => `<div>${l}</div>`).join('');
+            logDiv.scrollTop = logDiv.scrollHeight;
+            document.getElementById('t-count').innerText = data.running_count;
+        } catch (e) {}
     }
+
     document.getElementById('botForm').onsubmit = async (e) => {
         e.preventDefault();
-        const f = new FormData();
-        f.append('service_id', document.getElementById('sid').value);
-        f.append('video_link', document.getElementById('link').value);
-        f.append('target', document.getElementById('trgt').value);
-        await fetch('/start', { method: 'POST', body: f });
-        setInterval(update, 3000);
+        const sel = document.getElementById('sid');
+        const fd = new FormData();
+        fd.append('service_id', sel.value);
+        fd.append('service_name', sel.options[sel.selectedIndex].text.split(' — ')[0]);
+        fd.append('video_link', document.getElementById('link').value);
+        fd.append('target', document.getElementById('trgt').value);
+        
+        const r = await fetch('/start', { method: 'POST', body: fd });
+        const res = await r.json();
+        if(res.status === "already_running") {
+            alert("This service is already in progress!");
+        } else {
+            refreshLogs();
+        }
     };
-    async function stopBot() {
-        await fetch('/stop', { method: 'POST' });
-        update();
+
+    async function stopAll() {
+        if(confirm("Are you sure you want to stop all active tasks?")) {
+            await fetch('/stop_all', { method: 'POST' });
+            setTimeout(refreshLogs, 500);
+        }
     }
-    setInterval(update, 5000);
+
+    setInterval(refreshLogs, 3000);
 </script>
 </body>
 </html>
