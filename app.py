@@ -75,30 +75,32 @@ def run_automation(service_id, service_name, video_link, target):
             if order.get("success"):
                 order_count += 1
                 logs.append(f"> OK: {service_name} Success ({order_count}/{target_num})")
-                
-                # যদি টার্গেট পূরণ হয়ে যায়, তবে আর স্লিপ করবে না
-                if order_count >= target_num:
-                    break
+                if order_count >= target_num: break
             else:
                 msg = order.get('message', 'Wait')
                 logs.append(f"> WAIT: {service_name} - {msg}")
 
-            # পরবর্তী অর্ডারের জন্য স্লিপ লজিক
-            next_av = order.get("data", {}).get("nextAvailable")
+            # API থেকে আসা নির্দিষ্ট সময় নির্ধারণ
+            # API যদি 'nextAvailable' দেয় তবে সেটি ব্যবহার হবে, নতুবা ডিফল্ট ৬০ সেকেন্ড
             wait_time = 60
-            if next_av:
-                wait_time = max(int(next_av) - int(time.time()), 30)
+            next_av = order.get("data", {}).get("nextAvailable")
             
-            # শুধুমাত্র টার্গেট বাকি থাকলেই স্লিপ দেখাবে
+            if next_av:
+                current_time = int(time.time())
+                wait_time = int(next_av) - current_time
+                # যদি সময়টি নেতিবাচক বা খুব কম হয়, তবে ন্যূনতম ৩০ সেকেন্ড স্লিপ করবে
+                if wait_time < 0: wait_time = 30 
+            
             if order_count < target_num:
                 logs.append(f"> SLEEP: {wait_time}s (Left: {target_num - order_count})")
-                # সংশোধিত স্লিপ লুপ যা স্টপ বাটন ক্লিক করলে সাথে সাথে রেসপন্স করবে
+                # স্টপ বাটন দ্রুত কাজ করার জন্য প্রতি সেকেন্ডে চেক করা হচ্ছে
                 for _ in range(wait_time):
                     if task_id not in active_tasks or not active_tasks[task_id]['running']:
                         logs.append(f"> [STOPPED] {service_name} by user command.")
                         return 
                     time.sleep(1)
-        except:
+        except Exception as e:
+            logs.append(f"> ERROR: {str(e)}")
             time.sleep(30)
     
     if task_id in active_tasks: active_tasks[task_id]['running'] = False
@@ -126,8 +128,6 @@ def index():
                 for s in p_info.get('services', []):
                     raw_name = s.get('name', '')
                     translated = clean_and_translate(raw_name)
-                    
-                    # যদি নামের মধ্যে কাজ (Views/Likes) উল্লেখ না থাকে, তবে Views যোগ করবে
                     keywords = ['Views', 'Likes', 'Followers', 'Shares', 'Favorites', 'Members']
                     if not any(k in translated for k in keywords):
                         translated += " Views"
@@ -159,7 +159,6 @@ def start_bot():
 
 @app.route('/stop_all', methods=['POST'])
 def stop_all():
-    # সবগুলো চলমান টাস্ক বন্ধ করে দেওয়া হচ্ছে
     for sid in active_tasks: 
         active_tasks[sid]['running'] = False
     return jsonify({"status": "stopped"})
@@ -171,4 +170,4 @@ def get_logs():
 
 if __name__ == '__main__':
     threading.Thread(target=keep_alive_ping, daemon=True).start()
-    app.run(host='0.0.0.0', port=16415)
+    app.run(host='0.0.0.0', port=16473)
