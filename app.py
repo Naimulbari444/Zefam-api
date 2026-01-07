@@ -92,8 +92,11 @@ def run_automation(service_id, service_name, video_link, target):
             # শুধুমাত্র টার্গেট বাকি থাকলেই স্লিপ দেখাবে
             if order_count < target_num:
                 logs.append(f"> SLEEP: {wait_time}s (Left: {target_num - order_count})")
+                # সংশোধিত স্লিপ লুপ যা স্টপ বাটন ক্লিক করলে সাথে সাথে রেসপন্স করবে
                 for _ in range(wait_time):
-                    if not active_tasks.get(task_id) or not active_tasks[task_id]['running']: return
+                    if task_id not in active_tasks or not active_tasks[task_id]['running']:
+                        logs.append(f"> [STOPPED] {service_name} by user command.")
+                        return 
                     time.sleep(1)
         except:
             time.sleep(30)
@@ -156,7 +159,9 @@ def start_bot():
 
 @app.route('/stop_all', methods=['POST'])
 def stop_all():
-    for sid in active_tasks: active_tasks[sid]['running'] = False
+    # সবগুলো চলমান টাস্ক বন্ধ করে দেওয়া হচ্ছে
+    for sid in active_tasks: 
+        active_tasks[sid]['running'] = False
     return jsonify({"status": "stopped"})
 
 @app.route('/get_logs')
@@ -166,4 +171,4 @@ def get_logs():
 
 if __name__ == '__main__':
     threading.Thread(target=keep_alive_ping, daemon=True).start()
-    app.run(host='0.0.0.0', port=16475)
+    app.run(host='0.0.0.0', port=16415)
