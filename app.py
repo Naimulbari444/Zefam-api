@@ -6,7 +6,7 @@ app = Flask(__name__)
 active_tasks = {}  # {task_id: {'running': True}}
 logs = ["> System ready."]
 site_public_url = ""
-keep_alive_running = False  # গ্লোবাল ফ্ল্যাগ
+keep_alive_running = False
 keep_alive_thread = None
 
 API_URL = "https://zefame-free.com/api_free.php?action=config"
@@ -30,40 +30,34 @@ def clean_and_translate(text):
         text = text.replace(fr, en)
     return " ".join(text.split()).strip()
 
-# সুপার অপ্টিমাইজড Keep Alive — শুধু অ্যাকটিভ টাস্ক থাকলে চলবে
+# Keep Alive - শুধু অ্যাকটিভ টাস্ক থাকলে চলবে
 def smart_keep_alive():
     global keep_alive_running, site_public_url
     ping_url = site_public_url.rstrip('/') + "/get_logs"
-    
     while keep_alive_running:
-        # ডাবল চেক: যদি এখনো অ্যাকটিভ টাস্ক থাকে তবেই পিং
         if any(task.get('running', False) for task in active_tasks.values()):
             try:
                 requests.get(ping_url, timeout=15)
             except:
                 pass
-        # যদি কোনো টাস্ক না থাকে → লুপ থেকে বের হয়ে যাবে (থ্রেড শেষ)
         else:
             break
-        
-        time.sleep(420)  # প্রতি ৭ মিনিটে (Render-এ সেফ এবং অপ্টিমাল)
+        time.sleep(420)  # প্রতি ৭ মিনিটে (Render-এ সেফ)
 
-    # লুপ শেষ হলে ফ্ল্যাগ অফ
     keep_alive_running = False
     logs.append("> [SYSTEM] Keep-alive stopped (no active tasks)")
 
-def start_keep_alive_if_needed():
+def start_keep_alive():
     global keep_alive_running, keep_alive_thread
-    if not keep_alive_running and any(task.get('running', False) for task in active_tasks.values()):
+    if not keep_alive_running:
         keep_alive_running = True
         keep_alive_thread = threading.Thread(target=smart_keep_alive, daemon=True)
         keep_alive_thread.start()
-        logs.append("> [SYSTEM] Keep-alive started")
+        logs.append("> [SYSTEM] Keep-alive activated")
 
 def stop_keep_alive():
     global keep_alive_running
     keep_alive_running = False
-    logs.append("> [SYSTEM] Keep-alive stopped by user/action")
 
 def run_automation(service_id, service_name, video_link, target):
     task_id = str(service_id)
@@ -75,28 +69,31 @@ def run_automation(service_id, service_name, video_link, target):
     active_tasks[task_id] = {'running': True}
     logs.append(f"> [STARTING] {service_name}")
     
-    # প্রথম টাস্ক শুরু হলে keep-alive চালু করো
-    start_keep_alive_if_needed()
+    # Keep alive চালু করো
+    start_keep_alive()
 
-    # বাকি অটোমেশন লজিক (একই)
+    # Video ID চেক
     video_id = ""
     try:
         res = requests.post(CHECK_VIDEO_URL, data={"link": video_link}, headers=headers, timeout=20)
         data = res.json()
         video_id = data.get("data", {}).get("videoId", "")
     except:
-        logs.append("> [ERROR] Failed to check video ID")
+        logs.append("> [ERROR] Failed to get Video ID")
 
     if not video_id:
-        logs.append("> [ERROR] Video ID not found!")
+        logs.append("> [ERROR] Invalid Video ID! Check link.")
         del active_tasks[task_id]
-        start_keep_alive_if_needed()  # চেক করে বন্ধ করবে যদি দরকার হয়
+        if not any(t.get('running') for t in active_tasks.values()):
+            stop_keep_alive()
         return
 
     logs.append(f"> [VIDEO ID] {video_id}")
 
     target_num = int(target) if target and target.isdigit() else 999999
     order_count = 0
+    error_count = 0
+    max_errors = 15  # বেশি এরর হলে অটো স্টপ
 
     while active_tasks.get(task_id, {}).get('running') and order_count < target_num:
         try:
@@ -106,33 +103,46 @@ def run_automation(service_id, service_name, video_link, target):
 
             if order.get("success"):
                 order_count += 1
+                error_count = 0  # রিসেট
                 logs.append(f"> SUCCESS ({order_count}/{target_num}) {service_name}")
             else:
-                msg = order.get("message", "Wait")
+                msg = order.get("message", "Unknown")
                 logs.append(f"> WAIT: {msg}")
 
+            # nextAvailable ডিটেক্ট করে ডাইনামিক ওয়েট
             next_av = order.get("data", {}).get("nextAvailable")
-            wait_time = max(int(next_av) - int(time.time()), 5) if next_av and next_av.isdigit() else 30
+            if next_av and str(next_av).isdigit():
+                wait_time = max(int(next_av) - int(time.time()), 5)
+                logs.append(f"> DYNAMIC WAIT: {wait_time}s")
+            else:
+                wait_time = 30
+                logs.append(f"> DEFAULT WAIT: {wait_time}s")
 
-            if order_count < target_num:
-                logs.append(f"> SLEEP: {wait_time}s")
-                for _ in range(wait_time):
-                    if not active_tasks.get(task_id, {}).get('running'):
-                        logs.append(f"> [STOPPED] {service_name}")
-                        break
-                    time.sleep(1)
-        except:
-            logs.append("> [ORDER ERROR] Retrying...")
+            # ওয়েট লুপ
+            for _ in range(wait_time):
+                if not active_tasks.get(task_id, {}).get('running'):
+                    logs.append(f"> [STOPPED] {service_name}")
+                    break
+                time.sleep(1)
+
+        except Exception as e:
+            error_count += 1
+            logs.append(f"> [ORDER ERROR] Retry {error_count}/{max_errors}")
+            if error_count >= max_errors:
+                logs.append("> [STOPPED] Too many errors - Task stopped")
+                active_tasks[task_id]['running'] = False
+                break
             time.sleep(30)
 
     # টাস্ক শেষ
     if task_id in active_tasks:
         del active_tasks[task_id]
-    logs.append(f"> [FINISHED] {service_name} - Total: {order_count}")
+    logs.append(f"> [FINISHED] {service_name} - Sent: {order_count}")
 
-    # শেষ টাস্ক হলে keep-alive বন্ধের চেক
-    if not any(task.get('running', False) for task in active_tasks.values()):
+    # শেষ টাস্ক হলে keep-alive বন্ধ
+    if not any(t.get('running') for t in active_tasks.values()):
         stop_keep_alive()
+        logs.append("> [SYSTEM] Keep-alive deactivated")
 
 @app.route('/')
 def index():
@@ -160,7 +170,7 @@ def index():
                         "clickable": True
                     })
     except:
-        logs.append("> [API FAILED] Using fallback")
+        logs.append("> [API FAILED] Loading fallback services")
         processed = [
             {"id": "", "name": "--- TIKTOK ---", "clickable": False},
             {"id": "229", "name": "   Tiktok Views [Qty: 1000] (5 min)", "clickable": True},
@@ -187,7 +197,6 @@ def start_bot():
 
 @app.route('/stop_all', methods=['POST'])
 def stop_all():
-    global keep_alive_running
     for tid in list(active_tasks.keys()):
         active_tasks[tid]['running'] = False
     active_tasks.clear()
@@ -201,5 +210,5 @@ def get_logs():
     return jsonify({"logs": logs[-30:], "running_count": running})
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 10356))
+    port = int(os.environ.get('PORT', 10357))
     app.run(host='0.0.0.0', port=port)
