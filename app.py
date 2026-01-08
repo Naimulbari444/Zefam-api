@@ -1,4 +1,8 @@
-import os, uuid, time, requests, threading
+import os
+import uuid
+import time
+import requests
+import threading
 from flask import Flask, render_template, request, jsonify
 
 app = Flask(__name__)
@@ -9,9 +13,10 @@ site_public_url = ""
 keep_alive_running = False
 keep_alive_thread = None
 
-API_URL = "https://zefame-free.com/api_free.php?action=config"
-ORDER_URL = "https://zefame-free.com/api_free.php?action=order"
-CHECK_VIDEO_URL = "https://zefame-free.com/api_free.php?action=checkVideoId"
+# নতুন API URL গুলা
+API_URL = "https://free.zefame.com/api_free.php?action=config"
+ORDER_URL = "https://free.zefame.com/api_free.php?action=order"
+CHECK_VIDEO_URL = "https://free.zefame.com/api_free.php?action=checkVideoId"
 
 headers = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -30,7 +35,18 @@ def clean_and_translate(text):
         text = text.replace(fr, en)
     return " ".join(text.split()).strip()
 
-# Keep Alive - শুধু অ্যাকটিভ টাস্ক থাকলে চলবে
+def get_timer_display(timer_sec):
+    if timer_sec >= 86400:  # 24h+
+        return "24h"
+    elif timer_sec >= 3600:   # hours
+        hours = timer_sec // 3600
+        mins = (timer_sec % 3600) // 60
+        return f"{hours}h" if mins == 0 else f"{hours}h {mins}m"
+    else:
+        minutes = timer_sec // 60
+        return f"{minutes}m"
+
+# Smart Keep Alive
 def smart_keep_alive():
     global keep_alive_running, site_public_url
     ping_url = site_public_url.rstrip('/') + "/get_logs"
@@ -42,10 +58,10 @@ def smart_keep_alive():
                 pass
         else:
             break
-        time.sleep(420)  # প্রতি ৭ মিনিটে (Render-এ সেফ)
+        time.sleep(420)
 
     keep_alive_running = False
-    logs.append("> [SYSTEM] Keep-alive stopped (no active tasks)")
+    logs.append("> [SYSTEM] Keep-alive stopped")
 
 def start_keep_alive():
     global keep_alive_running, keep_alive_thread
@@ -68,17 +84,14 @@ def run_automation(service_id, service_name, video_link, target):
     
     active_tasks[task_id] = {'running': True}
     logs.append(f"> [STARTING] {service_name}")
-    
-    # Keep alive চালু করো
     start_keep_alive()
 
-    # Video ID চেক
     video_id = ""
     try:
         res = requests.post(CHECK_VIDEO_URL, data={"link": video_link}, headers=headers, timeout=20)
         data = res.json()
         video_id = data.get("data", {}).get("videoId", "")
-    except:
+    except Exception as e:
         logs.append("> [ERROR] Failed to get Video ID")
 
     if not video_id:
@@ -93,7 +106,7 @@ def run_automation(service_id, service_name, video_link, target):
     target_num = int(target) if target and target.isdigit() else 999999
     order_count = 0
     error_count = 0
-    max_errors = 15  # বেশি এরর হলে অটো স্টপ
+    max_errors = 15
 
     while active_tasks.get(task_id, {}).get('running') and order_count < target_num:
         try:
@@ -103,13 +116,12 @@ def run_automation(service_id, service_name, video_link, target):
 
             if order.get("success"):
                 order_count += 1
-                error_count = 0  # রিসেট
+                error_count = 0
                 logs.append(f"> SUCCESS ({order_count}/{target_num}) {service_name}")
             else:
                 msg = order.get("message", "Unknown")
                 logs.append(f"> WAIT: {msg}")
 
-            # nextAvailable ডিটেক্ট করে ডাইনামিক ওয়েট
             next_av = order.get("data", {}).get("nextAvailable")
             if next_av and str(next_av).isdigit():
                 wait_time = max(int(next_av) - int(time.time()), 5)
@@ -118,7 +130,6 @@ def run_automation(service_id, service_name, video_link, target):
                 wait_time = 30
                 logs.append(f"> DEFAULT WAIT: {wait_time}s")
 
-            # ওয়েট লুপ
             for _ in range(wait_time):
                 if not active_tasks.get(task_id, {}).get('running'):
                     logs.append(f"> [STOPPED] {service_name}")
@@ -129,20 +140,17 @@ def run_automation(service_id, service_name, video_link, target):
             error_count += 1
             logs.append(f"> [ORDER ERROR] Retry {error_count}/{max_errors}")
             if error_count >= max_errors:
-                logs.append("> [STOPPED] Too many errors - Task stopped")
+                logs.append("> [STOPPED] Too many errors")
                 active_tasks[task_id]['running'] = False
                 break
             time.sleep(30)
 
-    # টাস্ক শেষ
     if task_id in active_tasks:
         del active_tasks[task_id]
     logs.append(f"> [FINISHED] {service_name} - Sent: {order_count}")
 
-    # শেষ টাস্ক হলে keep-alive বন্ধ
     if not any(t.get('running') for t in active_tasks.values()):
         stop_keep_alive()
-        logs.append("> [SYSTEM] Keep-alive deactivated")
 
 @app.route('/')
 def index():
@@ -157,25 +165,35 @@ def index():
         api_res = requests.get(API_URL, headers=headers, timeout=20)
         api_data = api_res.json()
         platforms_data = api_data.get('data', {})
-        for platform in ['tiktok', 'instagram', 'facebook', 'youtube', 'twitter', 'telegram']:
+
+        for platform in ['tiktok', 'instagram', 'twitter', 'facebook', 'youtube', 'telegram']:
             if platform in platforms_data:
                 processed.append({"id": "", "name": f"--- {platform.upper()} ---", "clickable": False})
                 for s in platforms_data[platform].get('services', []):
-                    name = clean_and_translate(s.get('name', ''))
-                    if platform == 'tiktok' and "Views" not in name and all(x not in name for x in ["Likes", "Followers", "Shares", "Favorites"]):
-                        name += " Views"
+                    raw_name = s.get('name', '').strip()
+                    name = clean_and_translate(raw_name)
+                    qty = s.get('quantity', '?')
+                    timer_sec = s.get('timerSeconds', 0)
+                    timer_display = get_timer_display(timer_sec)
+
+                    # Views সার্ভিসের নাম খালি থাকলে "Views" যোগ করো
+                    if not name:
+                        name = "Views"
+
                     processed.append({
                         "id": s.get('id'),
-                        "name": f"   {platform.capitalize()} {name} [Qty: {s.get('quantity', '?')}] ({s.get('timer', 'N/A')})",
+                        "name": f"   {platform.capitalize()} {name} [Qty: {qty}] ({timer_display})",
                         "clickable": True
                     })
-    except:
-        logs.append("> [API FAILED] Loading fallback services")
+    except Exception as e:
+        logs.append("> [API FAILED] Loading fallback")
         processed = [
             {"id": "", "name": "--- TIKTOK ---", "clickable": False},
-            {"id": "229", "name": "   Tiktok Views [Qty: 1000] (5 min)", "clickable": True},
-            {"id": "230", "name": "   Tiktok Likes [Qty: 100] (Instant)", "clickable": True},
-            {"id": "231", "name": "   Tiktok Followers [Qty: 10] (24h)", "clickable": True},
+            {"id": "229", "name": "   Tiktok Views [Qty: 100] (5m)", "clickable": True},
+            {"id": "228", "name": "   Tiktok Followers [Qty: 10] (24h)", "clickable": True},
+            {"id": "232", "name": "   Tiktok Likes [Qty: 10] (5m)", "clickable": True},
+            {"id": "235", "name": "   Tiktok Shares [Qty: 20] (1h)", "clickable": True},
+            {"id": "236", "name": "   Tiktok Favorites [Qty: 30] (20m)", "clickable": True},
         ]
 
     return render_template('index.html', services=processed)
@@ -210,5 +228,5 @@ def get_logs():
     return jsonify({"logs": logs[-30:], "running_count": running})
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 10357))
+    port = int(os.environ.get('PORT', 10347))
     app.run(host='0.0.0.0', port=port)
