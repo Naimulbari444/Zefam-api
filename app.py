@@ -48,7 +48,8 @@ def smart_keep_alive():
     global keep_alive_running, site_public_url
     ping_url = site_public_url.rstrip('/') + "/get_logs"
     while keep_alive_running:
-        if any(task.get('running', False) for task in active_tasks.values()):
+        is_any_running = any(active_tasks[tid].get('running') for tid in active_tasks)
+        if is_any_running:
             try: requests.get(ping_url, timeout=15)
             except: pass
         else: break
@@ -71,8 +72,6 @@ def extract_video_id(url):
 
 def run_automation(service_id, service_name, video_link, target):
     task_id = str(service_id)
-    if task_id in active_tasks and active_tasks[task_id].get('running'): return
-    
     active_tasks[task_id] = {'running': True}
     logs.append(f"> [STARTING] {service_name}")
     start_keep_alive()
@@ -91,13 +90,15 @@ def run_automation(service_id, service_name, video_link, target):
         active_tasks.pop(task_id, None)
         return
 
-    # ভিডিও আইডি শো করা
     logs.append(f"> [VIDEO ID] {video_id}")
-    
     target_num = int(target) if target and target.isdigit() else 999999
     order_count = 0
 
-    while active_tasks.get(task_id, {}).get('running') and order_count < target_num:
+    while order_count < target_num:
+        # লুপের শুরুতে চেক
+        if not active_tasks.get(task_id, {}).get('running'):
+            break
+            
         try:
             payload = {"service": service_id, "link": video_link, "uuid": str(uuid.uuid4()), "videoId": video_id}
             res = session.post(ORDER_URL, data=payload, headers=headers, timeout=30)
@@ -110,20 +111,27 @@ def run_automation(service_id, service_name, video_link, target):
                 msg = order.get("message", "Service Busy")
                 logs.append(f"> WAIT: {msg}")
             
-            # ওয়েটিং টাইম বা কোoldown শো করা
             next_av = order.get("data", {}).get("nextAvailable")
             wait_time = max(int(next_av) - int(time.time()), 20) if next_av else 60
             
             logs.append(f"> WAITING: {wait_time}s for next order")
             
+            # টাইমার চলাকালীন স্টপ চেক
             for _ in range(wait_time):
-                if not active_tasks.get(task_id, {}).get('running'): break
+                if not active_tasks.get(task_id, {}).get('running'):
+                    # এখানেই স্টপ মেসেজ দিয়ে ফাংশন শেষ করে দেওয়া হচ্ছে
+                    logs.append(f"> [STOPPED] {service_name}")
+                    active_tasks.pop(task_id, None)
+                    return 
                 time.sleep(1)
+                
         except: 
-            logs.append("> [ERROR] Retrying in 30s...")
-            time.sleep(30)
+            time.sleep(10)
             
-    active_tasks.pop(task_id, None)
+    # স্বাভাবিকভাবে শেষ হলে
+    if task_id in active_tasks:
+        logs.append(f"> [FINISHED] {service_name}")
+        active_tasks.pop(task_id, None)
 
 @app.route('/')
 def index():
@@ -157,8 +165,9 @@ def index():
 
 @app.route('/start', methods=['POST'])
 def start_bot():
+    sid = request.form.get('service_id')
     threading.Thread(target=run_automation, args=(
-        request.form.get('service_id'), request.form.get('service_name'),
+        sid, request.form.get('service_name'),
         request.form.get('video_link'), request.form.get('target')
     ), daemon=True).start()
     return jsonify({"status": "started"})
@@ -170,10 +179,13 @@ def get_logs():
 @app.route('/stop_all', methods=['POST'])
 def stop_all():
     global keep_alive_running
-    for tid in list(active_tasks.keys()): active_tasks[tid]['running'] = False
-    active_tasks.clear()
+    # সব টাস্ক বন্ধের নির্দেশ
+    for tid in list(active_tasks.keys()):
+        active_tasks[tid]['running'] = False
+    
     keep_alive_running = False
+    logs.append("> [SYSTEM] Stopping all tasks...")
     return jsonify({"status": "stopped"})
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 10307)))
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 10341)))
