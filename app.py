@@ -14,9 +14,9 @@ keep_alive_running = False
 keep_alive_thread = None
 
 # নতুন API URL গুলা
-API_URL = "https://free.zefame.com/api_free.php?action=config"
-ORDER_URL = "https://free.zefame.com/api_free.php?action=order"
-CHECK_VIDEO_URL = "https://free.zefame.com/api_free.php?action=checkVideoId"
+API_URL = "https://app.zefame.com/api_free.php?action=config"
+ORDER_URL = "https://app.zefame.com/api_free.php?action=order"
+CHECK_VIDEO_URL = "https://app.zefame.com/api_free.php?action=checkVideoId"
 
 headers = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
