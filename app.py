@@ -94,8 +94,8 @@ def run_automation(service_id, service_name, video_link, target):
     target_num = int(target) if target and target.isdigit() else 999999
     order_count = 0
 
+    # লুপ লজিক আপডেট করা হয়েছে
     while order_count < target_num:
-        # লুপের শুরুতে চেক
         if not active_tasks.get(task_id, {}).get('running'):
             break
             
@@ -111,27 +111,23 @@ def run_automation(service_id, service_name, video_link, target):
                 msg = order.get("message", "Service Busy")
                 logs.append(f"> WAIT: {msg}")
             
+            if order_count >= target_num: break # টার্গেট শেষ হলে লুপ বন্ধ হবে
+
             next_av = order.get("data", {}).get("nextAvailable")
             wait_time = max(int(next_av) - int(time.time()), 20) if next_av else 60
-            
             logs.append(f"> WAITING: {wait_time}s for next order")
             
-            # টাইমার চলাকালীন স্টপ চেক
             for _ in range(wait_time):
                 if not active_tasks.get(task_id, {}).get('running'):
-                    # এখানেই স্টপ মেসেজ দিয়ে ফাংশন শেষ করে দেওয়া হচ্ছে
-                    logs.append(f"> [STOPPED] {service_name}")
-                    active_tasks.pop(task_id, None)
-                    return 
+                    break
                 time.sleep(1)
                 
         except: 
             time.sleep(10)
             
-    # স্বাভাবিকভাবে শেষ হলে
-    if task_id in active_tasks:
-        logs.append(f"> [FINISHED] {service_name}")
-        active_tasks.pop(task_id, None)
+    # স্টপ বা টার্গেট শেষ হলে সাকসেস রিপোর্ট দেখানো
+    logs.append(f"> [STOPPED] {service_name} | Total Success: {order_count}")
+    active_tasks.pop(task_id, None)
 
 @app.route('/')
 def index():
@@ -179,13 +175,11 @@ def get_logs():
 @app.route('/stop_all', methods=['POST'])
 def stop_all():
     global keep_alive_running
-    # সব টাস্ক বন্ধের নির্দেশ
     for tid in list(active_tasks.keys()):
         active_tasks[tid]['running'] = False
-    
     keep_alive_running = False
     logs.append("> [SYSTEM] Stopping all tasks...")
     return jsonify({"status": "stopped"})
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 10341)))
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 10347)))
