@@ -78,29 +78,40 @@ def run_automation(service_id, service_name, video_link, target):
 
     session = requests.Session()
     video_id = ""
-    try:
-        res = session.post(CHECK_VIDEO_URL, data={"link": video_link}, headers=headers, timeout=15)
-        video_id = res.json().get("data", {}).get("videoId", "")
-    except: pass
 
-    if not video_id: video_id = extract_video_id(video_link)
+    # Logic adjusted for Multi-Platform support
+    if "tiktok" in service_name.lower():
+        try:
+            res = session.post(CHECK_VIDEO_URL, data={"link": video_link}, headers=headers, timeout=15)
+            video_id = res.json().get("data", {}).get("videoId", "")
+        except: pass
 
-    if not video_id:
-        logs.append("> [ERROR] Video ID fetch failed!")
-        active_tasks.pop(task_id, None)
-        return
+        if not video_id: 
+            video_id = extract_video_id(video_link)
+        
+        if not video_id:
+            logs.append("> [ERROR] TikTok Video ID fetch failed!")
+            active_tasks.pop(task_id, None)
+            return
+        logs.append(f"> [VIDEO ID] {video_id}")
+    else:
+        # For FB, IG, YT - use the link directly as videoId
+        video_id = video_link
 
-    logs.append(f"> [VIDEO ID] {video_id}")
     target_num = int(target) if target and target.isdigit() else 999999
     order_count = 0
 
-    # লুপ লজিক আপডেট করা হয়েছে
     while order_count < target_num:
         if not active_tasks.get(task_id, {}).get('running'):
             break
             
         try:
-            payload = {"service": service_id, "link": video_link, "uuid": str(uuid.uuid4()), "videoId": video_id}
+            payload = {
+                "service": service_id, 
+                "link": video_link, 
+                "uuid": str(uuid.uuid4()), 
+                "videoId": video_id
+            }
             res = session.post(ORDER_URL, data=payload, headers=headers, timeout=30)
             order = res.json()
             
@@ -111,7 +122,7 @@ def run_automation(service_id, service_name, video_link, target):
                 msg = order.get("message", "Service Busy")
                 logs.append(f"> WAIT: {msg}")
             
-            if order_count >= target_num: break # টার্গেট শেষ হলে লুপ বন্ধ হবে
+            if order_count >= target_num: break
 
             next_av = order.get("data", {}).get("nextAvailable")
             wait_time = max(int(next_av) - int(time.time()), 20) if next_av else 60
@@ -125,7 +136,6 @@ def run_automation(service_id, service_name, video_link, target):
         except: 
             time.sleep(10)
             
-    # স্টপ বা টার্গেট শেষ হলে সাকসেস রিপোর্ট দেখানো
     logs.append(f"> [STOPPED] {service_name} | Total Success: {order_count}")
     active_tasks.pop(task_id, None)
 
